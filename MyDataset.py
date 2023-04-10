@@ -34,7 +34,7 @@ def get_mnist_train_dataloader(batch_size_train=64, rate=0.8):
 
     dataset_train, dataset_val = dataset_split(dataset_train, rate)
     train_loader = DataLoader(dataset_train, batch_size=batch_size_train, shuffle=True)
-    val_loader = DataLoader(dataset_train, batch_size=batch_size_train, shuffle=False)
+    val_loader = DataLoader(dataset_val, batch_size=batch_size_train, shuffle=False)
 
     return train_loader, val_loader
 

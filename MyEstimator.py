@@ -2,7 +2,7 @@ import torch
 from tqdm import tqdm
 import seaborn as sns
 from torchsummary import summary
-
+import numpy as np
 
 class Estimator:
     def __init__(self, model: torch.nn.Module, input_size):
@@ -23,7 +23,7 @@ class Estimator:
         self.early_stopping = early_stopping
         self.train_dataloader = train_dataloader
         self.val_dataloader = val_dataloader
-        print('train dataset size: {}, test dataset size: {}'.format(len(train_dataloader.dataset),
+        print('train dataset size: {}, val dataset size: {}'.format(len(train_dataloader.dataset),
                                                                      len(val_dataloader.dataset)))
         self.device = device
 
@@ -67,16 +67,39 @@ class Estimator:
             self.history['train_' + m] = []
             self.history['val_' + m] = []
 
-    def optimize(self, ):
+    def optimize(self, i):
         self.model.train()
-        for batch_idx, (data, target) in tqdm(enumerate(self.train_dataloader)):
-            data, target = data.to(self.device), target.to(self.device)
-            self.optim.zero_grad()
-            output = self.model(data)
-            loss = self.loss(output, target)
+        loop = tqdm(enumerate(self.train_dataloader), total=len(self.train_dataloader))
+        test_loss = 0.
+        num = 0
+        value = {}
+        for metrics in self.added_metrics:
+            value[metrics] = 0.
 
-            loss.backward()
-            self.optim.step()
+        for batch_idx, (data, target) in loop:
+                loop.set_description('Epoch %i' % i)
+                data, target = data.to(self.device), target.to(self.device)
+                self.optim.zero_grad()
+                output = self.model(data)
+                loss = self.loss(output, target)
+                loss.backward()
+                self.optim.step()
+
+                with torch.no_grad():
+                    test_loss += loss.item()
+                    num += data.shape[0]
+                    postfix = {}
+                    for metrics in self.added_metrics:
+                        value[metrics] += self.calcu_metrics(metrics, output, target)
+                        postfix[metrics] = ' {:.6f}'.format(value[metrics] / num)
+                    postfix['loss'] = ' {:.6f}'.format(test_loss / (batch_idx + 1))
+                    loop.set_postfix(postfix)
+
+        self.history['train_loss'].append(test_loss / len(self.train_dataloader))
+        for metrics in self.added_metrics:
+            value[metrics] /= len(self.train_dataloader.dataset)
+            self.history['train_' + metrics].append(value[metrics])
+
 
     def check(self):
         current_metrics = self.history['val_' + self.early_dict['metrics']][-1]
@@ -103,18 +126,16 @@ class Estimator:
         else:
             self.stop = False
 
-    def train(self, epoch=50, sep=3):
+    def train(self, epoch=50):
         self.init_history()
         self.eval('train')
         self.eval('val')
-        self.info('Begin with: ')
+
         for i in range(epoch):
-            self.optimize()
+            self.optimize(i)
 
             self.eval('val')
-            if i % sep == 0:
-                self.eval('train')
-                self.info('Epoch {}: '.format(i))
+
             if self.early_stopping:
                 self.check()
                 if self.stop:
@@ -135,7 +156,7 @@ class Estimator:
         acc = pred.eq(target.data.view_as(pred)).sum()
         return acc
 
-    def eval(self, mode='val', test_dataloader=None, verbose=0):
+    def eval(self, mode='val', test_dataloader=None):
         self.model.eval()
         test_loss = 0
 
@@ -157,14 +178,26 @@ class Estimator:
 
         with torch.no_grad():
 
-            for data, target in tqdm(dataloader):
+            loop = tqdm(enumerate(dataloader), total=len(dataloader))
+            num = 0
+
+            for batch_idx, (data, target) in loop:
+
+                loop.set_description('Eval('+mode+')')
+
                 data, target = data.to(self.device), target.to(self.device)
                 output = self.model(data)
                 test_loss += self.loss(output, target).item()
+                num += data.shape[0]
+                postfix = {}
                 for metrics in self.added_metrics:
                     value[metrics] += self.calcu_metrics(metrics, output, target)
+                    postfix[metrics] = ' {:.6f}'.format(value[metrics] / num)
+                postfix['loss'] = ' {:.6f}'.format(test_loss / (batch_idx + 1))
+                loop.set_postfix(postfix)
 
-        test_loss /= len(dataloader.dataset)
+
+        test_loss /= len(dataloader)
         if mode != 'test':
             self.history[mode + '_loss'].append(test_loss)
         for metrics in self.added_metrics:
@@ -172,11 +205,7 @@ class Estimator:
             if mode != 'test':
                 self.history[mode + '_' + metrics].append(value[metrics])
 
-        if verbose == 1:
-            print(mode + 'set: loss {:.4f} '.format(test_loss, ), end='')
-            for metrics in self.added_metrics:
-                print(metrics + ' {:.4f}'.format(value[metrics]), end=' ')
-            print()
+
 
     def pred(self, test_dataloader):
         outputs = []
@@ -193,10 +222,11 @@ class Estimator:
             torch.save(self.best_model_para, path)
         else:
             torch.save(self.model.state_dict(), path)
+        np.save(path + '.history.npy', self.history)
 
     def plot_history(self, metrics='loss'):
         train_m = 'train_' + metrics
         test_m = 'val_' + metrics
-
-        sns.lineplot(x=range(len(self.history[train_m])), y=self.history[train_m], label=train_m)
+        sep = int(len(self.history[train_m]) / len(self.history[test_m]))
+        sns.lineplot(x=range(0, len(self.history[train_m]), sep), y=self.history[train_m], label=train_m)
         sns.lineplot(x=range(len(self.history[test_m])), y=self.history[test_m], label=test_m)

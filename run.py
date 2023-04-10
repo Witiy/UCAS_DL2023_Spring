@@ -9,13 +9,14 @@ import pandas as pd
 mnist_model_path = '/mnt/c/Code/DL23Spring/model/MNIST/model.pth'
 kaggle_model_path = '/mnt/c/Code/DL23Spring/model/KAGGLE/model.pth'
 kaggle_output_path = '/mnt/c/Code/DL23Spring/model/KAGGLE/output.csv'
+
 def call_mnist(mode, path=mnist_model_path, cuda=True, lr=1e3, bs=256, es=20, early_stopping=True, early_dict=None, tr=0.8):
     if path == None:
         path = mnist_model_path
     if cuda == None:
         cuda = True
     if lr == None:
-        lr = 1e3
+        lr = 1e-3
     if bs == None:
         bs = 256
     if es == None:
@@ -58,7 +59,7 @@ def call_kaggle(mode, path=kaggle_model_path, cuda=True, lr=1e3, bs=256, es=20, 
     if cuda == None:
         cuda = True
     if lr == None:
-        lr = 1e3
+        lr = 1e-3
     if bs == None:
         bs = 128
     if es == None:
@@ -70,7 +71,7 @@ def call_kaggle(mode, path=kaggle_model_path, cuda=True, lr=1e3, bs=256, es=20, 
     if out_path == None:
         out_path = kaggle_output_path
     if arch == None:
-        arch = ''
+        arch = 'resnet18'
 
     factory = NetFactory()
     if arch == '':
