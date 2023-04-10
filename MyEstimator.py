@@ -1,18 +1,32 @@
 import torch
 from tqdm import tqdm
 import seaborn as sns
+from torchsummary import summary
+
+
 class Estimator:
-    def __init__(self, model:torch.nn.Module, train_dataloader, val_dataloader,
-                 device=None, lr=1e-3, optim=None, loss=None, early_stopping=True, early_dict=None, metrics=None):
+    def __init__(self, model: torch.nn.Module, input_size):
+        self.early_dict = None
+        self.optim = None
+        self.val_dataloader = None
+        self.train_dataloader = None
+        self.loss = None
+        self.model = model
+        summary(model, input_size, -1)
+
+    def prepare_train(self, train_dataloader, val_dataloader,
+                      device=None, lr=1e-3, optim=None, loss=None, early_stopping=True, early_dict=None, metrics=None,
+                      ):
 
         if metrics is None:
             metrics = ['acc']
-        self.model = model
+        self.early_stopping = early_stopping
         self.train_dataloader = train_dataloader
         self.val_dataloader = val_dataloader
-        print('train dataset size: {}, test dataset size: {}'.format(len(train_dataloader.dataset), len(val_dataloader.dataset)))
+        print('train dataset size: {}, test dataset size: {}'.format(len(train_dataloader.dataset),
+                                                                     len(val_dataloader.dataset)))
         self.device = device
-        self.early_stopping = early_stopping
+
         if optim == None:
             self.optim = torch.optim.Adam(self.model.parameters(), lr=lr)
         else:
@@ -38,32 +52,34 @@ class Estimator:
             for key in early_dict.keys():
                 self.early_dict[key] = early_dict[key]
 
-        self.stop = False #for early stopping state
+        self.stop = False  # for early stopping state
         self.best_matrics = None
         self.best_model_para = None
         self.patient = 0
-        self.history = {'train_loss':[], 'test_loss':[],
+        self.history = {'train_loss': [], 'val_loss': []
                         }
+
         self.added_metrics = metrics
         self.init_history()
 
     def init_history(self):
         for m in self.added_metrics:
-            self.history['train_'+m] = []
-            self.history['test_' + m] = []
+            self.history['train_' + m] = []
+            self.history['val_' + m] = []
 
-    def optimize(self):
+    def optimize(self, ):
         self.model.train()
-        for batch_idx, (data, target) in enumerate(self.train_dataloader):
+        for batch_idx, (data, target) in tqdm(enumerate(self.train_dataloader)):
             data, target = data.to(self.device), target.to(self.device)
             self.optim.zero_grad()
             output = self.model(data)
             loss = self.loss(output, target)
+
             loss.backward()
             self.optim.step()
 
     def check(self):
-        current_metrics = self.history['test_'+self.early_dict['metrics']][-1]
+        current_metrics = self.history['val_' + self.early_dict['metrics']][-1]
         if self.best_matrics == None:
             self.best_matrics = current_metrics
             self.best_model_para = self.model.state_dict()
@@ -87,17 +103,18 @@ class Estimator:
         else:
             self.stop = False
 
-    def train(self, epoch=50):
+    def train(self, epoch=50, sep=3):
         self.init_history()
         self.eval('train')
-        self.eval('test')
+        self.eval('val')
         self.info('Begin with: ')
-        for i in tqdm(range(epoch)):
+        for i in range(epoch):
             self.optimize()
 
-            self.eval('train')
-            self.eval('test')
-            self.info('Epoch {}: '.format(i))
+            self.eval('val')
+            if i % sep == 0:
+                self.eval('train')
+                self.info('Epoch {}: '.format(i))
             if self.early_stopping:
                 self.check()
                 if self.stop:
@@ -140,26 +157,36 @@ class Estimator:
 
         with torch.no_grad():
 
-            for data, target in dataloader:
+            for data, target in tqdm(dataloader):
                 data, target = data.to(self.device), target.to(self.device)
                 output = self.model(data)
                 test_loss += self.loss(output, target).item()
                 for metrics in self.added_metrics:
                     value[metrics] += self.calcu_metrics(metrics, output, target)
 
-
         test_loss /= len(dataloader.dataset)
-        self.history[mode+'_loss'].append(test_loss)
+        if mode != 'test':
+            self.history[mode + '_loss'].append(test_loss)
         for metrics in self.added_metrics:
             value[metrics] /= len(dataloader.dataset)
-            self.history[mode + '_' + metrics].append(value[metrics])
+            if mode != 'test':
+                self.history[mode + '_' + metrics].append(value[metrics])
 
         if verbose == 1:
-            print(mode + 'set: loss {:.4f} '.format(test_loss,), end='')
+            print(mode + 'set: loss {:.4f} '.format(test_loss, ), end='')
             for metrics in self.added_metrics:
                 print(metrics + ' {:.4f}'.format(value[metrics]), end=' ')
             print()
 
+    def pred(self, test_dataloader):
+        outputs = []
+        with torch.no_grad():
+            for data, target in test_dataloader:
+                data, target = data.to(self.device), target.to(self.device)
+                output = self.model(data)
+                outputs.append(output)
+
+        return torch.cat(outputs, dim=-1)
 
     def save(self, path):
         if self.early_stopping:
@@ -168,14 +195,8 @@ class Estimator:
             torch.save(self.model.state_dict(), path)
 
     def plot_history(self, metrics='loss'):
-        train_m = 'train_'+ metrics
+        train_m = 'train_' + metrics
         test_m = 'val_' + metrics
 
         sns.lineplot(x=range(len(self.history[train_m])), y=self.history[train_m], label=train_m)
         sns.lineplot(x=range(len(self.history[test_m])), y=self.history[test_m], label=test_m)
-
-
-
-
-
-

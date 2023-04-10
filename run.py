@@ -1,12 +1,29 @@
 import torch
 import argparse
 from MyModel import NetFactory
-from MyDataset import get_mnist_dataloader
+from MyDataset import *
 from MyEstimator import Estimator
+import numpy as np
+import pandas as pd
 
-def call_mnist(mode, path, cuda, lr, bs, es, early_stopping, early_dict):
-
-
+mnist_model_path = '/mnt/c/Code/DL23Spring/model/MNIST/model.pth'
+kaggle_model_path = '/mnt/c/Code/DL23Spring/model/KAGGLE/model.pth'
+kaggle_output_path = '/mnt/c/Code/DL23Spring/model/KAGGLE/output.csv'
+def call_mnist(mode, path=mnist_model_path, cuda=True, lr=1e3, bs=256, es=20, early_stopping=True, early_dict=None, tr=0.8):
+    if path == None:
+        path = mnist_model_path
+    if cuda == None:
+        cuda = True
+    if lr == None:
+        lr = 1e3
+    if bs == None:
+        bs = 256
+    if es == None:
+        es = 20
+    if early_stopping == None:
+        early_stopping = True
+    if tr == None:
+        tr = 0.8
     factory = NetFactory()
     model = factory.getNet('mnist')
     if cuda:
@@ -17,17 +34,17 @@ def call_mnist(mode, path, cuda, lr, bs, es, early_stopping, early_dict):
         model.to(device)
 
     print('loading data..')
-    train_dataloader, test_dataloader = get_mnist_dataloader(batch_size_train=bs, batch_size_test=2*bs)
-    estimator = Estimator(model, train_dataloader, test_dataloader, device,
-        lr= lr, early_stopping=early_stopping, early_dict=early_dict,
-        )
+
+    estimator = Estimator(model, mnist_input_size)
 
     if mode == 'test':
-
+        test_dataloader = get_mnist_test_dataloader(bs)
         estimator.model.load_state_dict(torch.load(path))
         print('start testing..')
         estimator.eval('test', test_dataloader=test_dataloader, verbose=1)
     else:
+        train_dataloader, val_dataloader = get_mnist_train_dataloader(bs, tr)
+        estimator.prepare_train(train_dataloader, val_dataloader, device, lr, early_stopping=early_stopping, early_dict=early_dict)
         print('start training..')
         estimator.train(es)
         estimator.save(path)
@@ -35,20 +52,91 @@ def call_mnist(mode, path, cuda, lr, bs, es, early_stopping, early_dict):
     return estimator
 
 
+def call_kaggle(mode, path=kaggle_model_path, cuda=True, lr=1e3, bs=256, es=20, early_stopping=True, early_dict=None, tr=0.8, out_path=kaggle_output_path, arch=''):
+    if path == None:
+        path = mnist_model_path
+    if cuda == None:
+        cuda = True
+    if lr == None:
+        lr = 1e3
+    if bs == None:
+        bs = 128
+    if es == None:
+        es = 20
+    if early_stopping == None:
+        early_stopping = True
+    if tr == None:
+        tr = 0.8
+    if out_path == None:
+        out_path = kaggle_output_path
+    if arch == None:
+        arch = ''
+
+    factory = NetFactory()
+    if arch == '':
+        model = factory.getNet('kaggle')
+    else:
+        model = factory.getNet(arch, 2)
+
+    if cuda:
+        device = torch.device("cuda:0")
+        model.to(device)
+    else:
+        device = torch.device("cpu")
+        model.to(device)
+
+    print('loading data..')
+
+
+    estimator = Estimator(model, kaggle_input_size)
+
+    if mode == 'test':
+        test_dataloader = get_kaggle_dataloader(bs, kaggle_test_path)
+        estimator.model.load_state_dict(torch.load(path))
+        print('start testing..')
+        estimator.eval('test', test_dataloader=test_dataloader, verbose=1)
+
+    elif mode == 'pred':
+        pred_dataloader = get_kaggle_dataloader(bs, kaggle_pred_path)
+        estimator.model.load_state_dict(torch.load(path))
+        print('start predicting..')
+        outputs = estimator.pred(test_dataloader=pred_dataloader)
+        outputs = outputs.data.max(1, keepdim=True)[1]
+        ids = list(range(1, len(outputs)+1))
+        output_df = pd.DataFrame({'id':ids, 'label':outputs})
+        output_df.to_csv(out_path, index=False)
+
+    else:
+        train_dataloader, val_dataloader = get_kaggle_train_dataloader(batch_size_train=bs, rate=tr)
+        estimator.prepare_train(train_dataloader, val_dataloader, device,
+            lr= lr, early_stopping=early_stopping, early_dict=early_dict
+        )
+        print('start training..')
+        estimator.train(es)
+        estimator.save(path)
+        #estimator.plot_history()
+    return estimator
+
+
+
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--experiment', type=str, default='mnist')
-    parser.add_argument('--path', type=str, default='./model/MNIST/model.pth')
-    parser.add_argument('--mode', type=str, default='test')
-    parser.add_argument('--lr', type=float, default=1e-3)
-    parser.add_argument('--bs', type=int, default=128)
-    parser.add_argument('--es', type=int, default=10)
+    parser.add_argument('--experiment', type=str, default='kaggle')
+    parser.add_argument('--path', type=str)
+    parser.add_argument('--output', type=str)
+    parser.add_argument('--mode', type=str, default='train')
+    parser.add_argument('--lr', type=float)
+    parser.add_argument('--bs', type=int)
+    parser.add_argument('--es', type=int)
+    parser.add_argument('--tr', type=float)
+    parser.add_argument('--net', type=str)
     parser.add_argument('--early_stopping', action='store_true', default=True)
+
     parser.add_argument('--patient', type=int, default=5)
     parser.add_argument('--cuda', action='store_true', default=True)
 
     args = parser.parse_args()
-    mode, path, cuda, lr, bs, es = args.mode, args.path, args.cuda, args.lr, args.bs, args.es
+    mode, output, path, cuda, lr, bs, es, tr = args.mode, args.output, args.path, args.cuda, args.lr, args.bs, args.es, args.tr
 
     early_stopping = args.early_stopping
     if early_stopping:
@@ -59,7 +147,9 @@ def main():
         early_dict = None
 
     if args.experiment == 'mnist':
-        call_mnist(mode, path, cuda, lr, bs, es, early_stopping, early_dict)
+        call_mnist(mode, path, cuda, lr, bs, es, early_stopping, early_dict, tr)
+    elif args.experiment == 'kaggle':
+        call_kaggle(mode, path, cuda, lr, bs, es, early_stopping, early_dict, tr, output, args.net)
 
 if __name__ == '__main__':
     main()
