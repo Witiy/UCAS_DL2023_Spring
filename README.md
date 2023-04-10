@@ -8,3 +8,6 @@ run.py is the api for model training, testing. In MyDataset.py, you can change t
 '''
 python run.py --experiment mnist
 '''
+
+##TODO
+fix tqdm as https://github.com/BohriumKwong/pytorch_use_demo/blob/master/README.md
