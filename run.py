@@ -57,7 +57,7 @@ def call_mnist(mode, path=mnist_model_path, cuda=True, lr=1e3, bs=256, es=20, ea
 
 def call_kaggle(mode, path=kaggle_model_path, cuda=True, lr=1e3, bs=256, es=20, early_stopping=True, early_dict=None, tr=0.8, out_path=kaggle_output_path, arch=''):
     if path == None:
-        path = mnist_model_path
+        path = kaggle_model_path
     if cuda == None:
         cuda = True
     if lr == None:
@@ -125,10 +125,11 @@ def call_kaggle(mode, path=kaggle_model_path, cuda=True, lr=1e3, bs=256, es=20, 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--experiment', type=str, default='mnist')
+    #optional mnist kaggle
+    parser.add_argument('--experiment', type=str, default='kaggle')
     parser.add_argument('--path', type=str)
     parser.add_argument('--output', type=str)
-    parser.add_argument('--mode', type=str, default='train')
+    parser.add_argument('--mode', type=str, default='test')
     parser.add_argument('--lr', type=float)
     parser.add_argument('--bs', type=int)
     parser.add_argument('--es', type=int, default=20)
