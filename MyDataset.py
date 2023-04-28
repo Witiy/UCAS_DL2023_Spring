@@ -1,12 +1,15 @@
 import torch
 from torch.utils.data import DataLoader
 import torchvision
-
+'''
+对于图像输入转换的settings
+'''
 kaggle_transform = torchvision.transforms.Compose([
         torchvision.transforms.Resize(size=(224, 224)),
         torchvision.transforms.ToTensor(),
         torchvision.transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5])
     ])
+
 mnist_transform = torchvision.transforms.Compose([
                                        torchvision.transforms.ToTensor(),
                                        torchvision.transforms.Normalize(
@@ -14,13 +17,29 @@ mnist_transform = torchvision.transforms.Compose([
                                    ])
 kaggle_input_size = (3, 224, 224)
 mnist_input_size = (1, 28, 28)
+
+'''
+数据的路径，mnist只需要提供数据的上级文件夹路径
+kaggle需要以文件夹分割类别图片，例如
+/kaggle_train
+    /kaggle_train/cat
+    /kaggle_train/dog
+
+/kaggle_test
+    /kaggle_test/cat
+    /kaggle_test/dog
+
+/kaggle_pred
+    /kaggle_pred/unknown
+'''
+
 mnist_root = '/mnt/c/Code/DL23spring/data/'
 kaggle_test_path = '/mnt/c/Code/DL23spring/data/KAGGLE/toy_test/'
 kaggle_pred_path = '/mnt/c/Code/DL23spring/data/KAGGLE/test/'
 kaggle_train_path = '/mnt/c/Code/DL23spring/data/KAGGLE/toy_train/'
 
 
-def dataset_split(full_ds, train_rate=0.8):  # full_ds为train_ds, train_rate=0.8
+def dataset_split(full_ds, train_rate=0.8):
     train_size = int(len(full_ds) * train_rate)
     validate_size = len(full_ds) - train_size
     train_ds, validate_ds = torch.utils.data.random_split(full_ds, [train_size, validate_size])

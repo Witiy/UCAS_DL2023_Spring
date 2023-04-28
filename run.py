@@ -36,20 +36,22 @@ def call_mnist(mode, path=mnist_model_path, cuda=True, lr=1e3, bs=256, es=20, ea
 
     print('loading data..')
 
-    estimator = Estimator(model, mnist_input_size)
+    estimator = Estimator(model, mnist_input_size, device)
 
     if mode == 'test':
         test_dataloader = get_mnist_test_dataloader(bs)
+        estimator.prepare_test(test_dataloader, device=device)
         estimator.model.load_state_dict(torch.load(path))
         print('start testing..')
-        estimator.eval('test', test_dataloader=test_dataloader, verbose=1)
+        estimator.eval('test')
     else:
         train_dataloader, val_dataloader = get_mnist_train_dataloader(bs, tr)
         estimator.prepare_train(train_dataloader, val_dataloader, device, lr, early_stopping=early_stopping, early_dict=early_dict)
         print('start training..')
         estimator.train(es)
         estimator.save(path)
-        #estimator.plot_history()
+        estimator.plot_history('loss')
+        estimator.plot_history('acc')
     return estimator
 
 
@@ -89,13 +91,14 @@ def call_kaggle(mode, path=kaggle_model_path, cuda=True, lr=1e3, bs=256, es=20, 
     print('loading data..')
 
 
-    estimator = Estimator(model, kaggle_input_size)
+    estimator = Estimator(model, kaggle_input_size, device)
 
     if mode == 'test':
         test_dataloader = get_kaggle_dataloader(bs, kaggle_test_path)
+        estimator.prepare_test(test_dataloader, device=device)
         estimator.model.load_state_dict(torch.load(path))
         print('start testing..')
-        estimator.eval('test', test_dataloader=test_dataloader, verbose=1)
+        estimator.eval('test')
 
     elif mode == 'pred':
         pred_dataloader = get_kaggle_dataloader(bs, kaggle_pred_path)
@@ -122,13 +125,13 @@ def call_kaggle(mode, path=kaggle_model_path, cuda=True, lr=1e3, bs=256, es=20, 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--experiment', type=str, default='kaggle')
+    parser.add_argument('--experiment', type=str, default='mnist')
     parser.add_argument('--path', type=str)
     parser.add_argument('--output', type=str)
     parser.add_argument('--mode', type=str, default='train')
     parser.add_argument('--lr', type=float)
     parser.add_argument('--bs', type=int)
-    parser.add_argument('--es', type=int)
+    parser.add_argument('--es', type=int, default=20)
     parser.add_argument('--tr', type=float)
     parser.add_argument('--net', type=str)
     parser.add_argument('--early_stopping', action='store_true', default=True)
