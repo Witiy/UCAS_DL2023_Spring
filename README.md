@@ -21,7 +21,7 @@ python run.py --experiment mnist --mode train
 * `--mode`: specifies the mode of pipeline (train, test, pred(for kaggle)).
 * `--path`: specifies the path of model parameters.
 * `--early_stopping`: training procedure with early stopping or not.
-* `--early_stopping`: specifies the patient of early stopping.
+* `--patient`: specifies the patient of early stopping.
 * `--cuda`: using GPU or not.
 * `--lr`: specifies the learning rate.
 * `--bs`: specifies the batch size.
