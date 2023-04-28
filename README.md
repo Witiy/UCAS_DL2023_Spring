@@ -10,7 +10,7 @@ automatic poetry                ×
 movie emotion classification    ×
 
 ## Usage
-run.py is the api for model training, testing. In `MyDataset.py', you can change the data path into your own one.
+run.py is the api for model training, testing. In `MyDataset.py`, you can change the data path into your own one. To get the mnist data, you can look at the `datascript.py', and use the function in there.
 
 ```
 python run.py --experiment mnist --mode train
