@@ -258,7 +258,7 @@ class Estimator:
 
 
 
-    def plot_history(self, metrics='loss'):
+    def plot_history(self, metrics='loss', saved=True):
         train_m = 'train_' + metrics
         test_m = 'val_' + metrics
         sep = int(len(self.history[train_m]) / len(self.history[test_m]))
@@ -269,5 +269,6 @@ class Estimator:
             plt.axvline(x=self.end_epoch, linestyle='--', color='red')
         plt.xlabel('Epoch')
         plt.ylabel('Value')
-        plt.savefig('history_'+metrics+'.png')
+        if saved:
+            plt.savefig('history_'+metrics+'.png')
         plt.close()
