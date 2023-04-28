@@ -5,9 +5,8 @@ In this repository, there are four projects that handwrited number recognition, 
 
 ## Usage
 run.py is the api for model training, testing. In MyDataset.py, you can change the data path into your own one.
-'''
-python run.py --experiment mnist
-'''
+  python run.py --experiment mnist
+
 
 ## TODO
 fix tqdm as https://github.com/BohriumKwong/pytorch_use_demo/blob/master/README.md
