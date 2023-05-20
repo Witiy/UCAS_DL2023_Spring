@@ -18,9 +18,11 @@ class Estimator:
             self.added_metrics = ['acc']
         else:
             self.added_metrics = metrics
+        #summary(model, input_size, -1)
+        self.smy(model, input_size)
+
+    def smy(self, model, input_size):
         summary(model, input_size, -1)
-
-
 
     def prepare_test(self, test_dataloader, device=None, loss=None, metrics=None,
                       ):
@@ -44,7 +46,7 @@ class Estimator:
             self.added_metrics = metrics
 
 
-    def prepare_train(self, train_dataloader, val_dataloader,
+    def prepare_train(self, train_dataloader, val_dataloader=None,
                       device=None, lr=1e-3, optim=None, loss=None, early_stopping=True, early_dict=None, metrics=None,
                       ):
 
@@ -52,8 +54,11 @@ class Estimator:
         self.early_stopping = early_stopping
         self.train_dataloader = train_dataloader
         self.val_dataloader = val_dataloader
-        print('train dataset size: {}, val dataset size: {}'.format(len(train_dataloader.dataset),
+        if val_dataloader:
+            print('train dataset size: {}, val dataset size: {}'.format(len(train_dataloader.dataset),
                                                                      len(val_dataloader.dataset)))
+        else:
+            print('train dataset size: {}'.format(len(train_dataloader.dataset)))
         self.device = device
 
         if optim == None:
@@ -96,6 +101,8 @@ class Estimator:
             self.history['train_' + m] = []
             self.history['val_' + m] = []
 
+
+
     def optimize(self, i):
         self.model.train()
         loop = tqdm(enumerate(self.train_dataloader), total=len(self.train_dataloader))
@@ -107,19 +114,19 @@ class Estimator:
 
         for batch_idx, (data, target) in loop:
                 loop.set_description('Epoch %i' % i)
-                data, target = data.to(self.device), target.to(self.device)
                 self.optim.zero_grad()
-                output = self.model(data)
-                loss = self.loss(output, target)
+
+                loss, output, target = self.calcu_loss(data, target)
                 loss.backward()
                 self.optim.step()
 
                 with torch.no_grad():
                     train_loss += loss.item()
-                    num += data.shape[0]
+                    num += target.shape[0]
                     postfix = {}
                     for metrics in self.added_metrics:
                         value[metrics] += self.calcu_metrics(metrics, output, target).item()#记录训练过程中所要求的metrics, e.g. accuracy
+                        #print(value[metrics], num)
                         postfix['train_'+metrics] = ' {:.6f}'.format(value[metrics] / num)
                     postfix['train_loss'] = ' {:.6f}'.format(train_loss / (batch_idx + 1))
                     loop.set_postfix(postfix)
@@ -163,12 +170,13 @@ class Estimator:
     def train(self, epoch=50):
         self.init_history()
         self.eval('train')
-        self.eval('val')
+        if self.val_dataloader != None:
+            self.eval('val')
 
         for i in range(epoch):
             self.optimize(i)
-
-            self.eval('val')
+            if self.val_dataloader != None:
+                self.eval('val')
 
             if self.early_stopping:
                 self.check()
@@ -176,18 +184,24 @@ class Estimator:
                     break
         print('Finish Train')
 
-    def info(self, prefix):
-        print(prefix, end='')
-        for m in self.history:
-            print(m + ' : {:.4f} '.format(self.history[m][-1]), end='')
-        print()
+    def calcu_loss(self, data, target):
+
+        data, target = data.to(self.device), target.to(self.device)
+
+        output = self.model(data)
+        return self.loss(output, target), output, target
+
+
 
     def calcu_metrics(self, metric, output, target):
         return getattr(self, metric)(output, target)
 
     def acc(self, output, target):
+        #print(output.shape, target.shape)
         pred = output.data.max(1, keepdim=True)[1]
+        #print(pred.shape)
         acc = pred.eq(target.data.view_as(pred)).sum()
+        #print(acc)
         return acc
 
     def eval(self, mode='val'):
@@ -216,14 +230,13 @@ class Estimator:
             for batch_idx, (data, target) in loop:
 
                 loop.set_description('Eval('+mode+')')
-
-                data, target = data.to(self.device), target.to(self.device)
-                output = self.model(data)
-                test_loss += self.loss(output, target).item()
-                num += data.shape[0]
+                loss, output, target = self.calcu_loss(data, target)
+                test_loss += loss.item()
+                num += target.shape[0]
                 postfix = {}
                 for metrics in self.added_metrics:
                     value[metrics] += self.calcu_metrics(metrics, output, target).item()
+                    #print(value[metrics], num)
                     postfix[mode + '_' + metrics] = ' {:.6f}'.format(value[metrics] / num)
                 postfix[mode + '_' + 'loss'] = ' {:.6f}'.format(test_loss / (batch_idx + 1))
                 loop.set_postfix(postfix)
@@ -241,13 +254,13 @@ class Estimator:
 
     def pred(self, test_dataloader):
         outputs = []
+        print('inference dataset size: {}'.format(len(test_dataloader.dataset)))
         with torch.no_grad():
-            for data, target in test_dataloader:
+            for data, target in tqdm(test_dataloader):
                 data, target = data.to(self.device), target.to(self.device)
-                output = self.model(data)
+                output = self.model_get_output(data)
                 outputs.append(output)
-
-        return torch.cat(outputs, dim=-1)
+        return torch.cat(outputs, dim=0)
 
     def save(self, path):
         if self.early_stopping:
@@ -266,7 +279,7 @@ class Estimator:
         sns.lineplot(x=range(0, len(self.history[train_m]), sep), y=self.history[train_m], label=train_m)
         sns.lineplot(x=range(len(self.history[test_m])), y=self.history[test_m], label=test_m)
         if self.early_stopping:
-            plt.axvline(x=self.end_epoch, linestyle='--', color='red')
+            plt.axvline(x=self.end_epoch - 1, linestyle='--', color='red')
         plt.xlabel('Epoch')
         plt.ylabel('Value')
         if saved:

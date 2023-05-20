@@ -17,7 +17,8 @@ mnist_transform = torchvision.transforms.Compose([
                                    ])
 kaggle_input_size = (3, 224, 224)
 mnist_input_size = (1, 28, 28)
-
+tang_input_size = (48,)
+tang_vocab_size = 8293
 '''
 数据的路径，mnist只需要提供数据的上级文件夹路径
 kaggle需要以文件夹分割类别图片，例如
@@ -33,11 +34,11 @@ kaggle需要以文件夹分割类别图片，例如
     /kaggle_pred/unknown
 '''
 
-mnist_root = '/mnt/c/Code/DL23spring/data/'
-kaggle_test_path = '/mnt/c/Code/DL23spring/data/KAGGLE/toy_test/'
-kaggle_pred_path = '/mnt/c/Code/DL23spring/data/KAGGLE/test/'
-kaggle_train_path = '/mnt/c/Code/DL23spring/data/KAGGLE/toy_train/'
-
+mnist_root = './data/'
+kaggle_test_path = './data/KAGGLE/toy_test/'
+kaggle_pred_path = './data/KAGGLE/test/'
+kaggle_train_path = './data/KAGGLE/toy_train/'
+tang_train_path = './data/TANG/tang.npz'
 
 def dataset_split(full_ds, train_rate=0.8):
     train_size = int(len(full_ds) * train_rate)
@@ -91,5 +92,60 @@ def get_kaggle_dataloader(batch_size_test=64, path=kaggle_test_path):
     return test_loader
 
 
+import numpy as np
+
+
+class PoemDataSet(torch.utils.data.Dataset):
+    def __init__(self,poem_path,seq_len):
+        self.seq_len = seq_len
+        self.poem_path = poem_path
+        self.poem_data, self.ix2word, self.word2ix = get_tang_raw_data(poem_path)
+        self.no_space_data = self.filter_space()
+
+    def __getitem__(self, idx:int):
+        txt = self.no_space_data[idx*self.seq_len : (idx+1)*self.seq_len]
+        label = self.no_space_data[idx*self.seq_len + 1 : (idx+1)*self.seq_len + 1] # 将窗口向后移动一个字符就是标签
+        txt = torch.from_numpy(np.array(txt)).long()
+        label = torch.from_numpy(np.array(label)).long()
+        return txt,label
+
+    def __len__(self):
+        return int(len(self.no_space_data) / self.seq_len)
+
+    def filter_space(self): # 将空格的数据给过滤掉，并将原始数据平整到一维
+        t_data = torch.from_numpy(self.poem_data).view(-1)
+        flat_data = t_data.numpy()
+        no_space_data = []
+        for i in flat_data:
+            if (i != 8292 ):
+                no_space_data.append(i)
+        return no_space_data
+
+
+
+
+def get_tang_train_dataloader(batch_size=16, rate=0.8):
+    dataset_train = PoemDataSet(tang_train_path, tang_input_size[0])
+    dataset_train, dataset_val = dataset_split(dataset_train, rate)
+    train_dataloader = torch.utils.data.DataLoader(dataset_train,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=2)
+    val_dataloader = torch.utils.data.DataLoader(dataset_val,
+                                             batch_size=batch_size,
+                                             shuffle=True,
+                                             num_workers=2)
+
+    return train_dataloader, val_dataloader
+
+
+
+def get_tang_raw_data(poem_path):
+    datas = np.load(poem_path,allow_pickle=True)  #numpy 1.16.2  以上引入了allow_pickle
+    #datas = np.load(self.poem_path)
+    data = datas['data']
+    ix2word = datas['ix2word'].item()
+    word2ix = datas['word2ix'].item()
+    return data, ix2word, word2ix
 
 
