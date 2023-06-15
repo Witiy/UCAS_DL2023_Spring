@@ -44,4 +44,4 @@ python run.py --experiment mnist --mode test
 * `--note`: for tang, I use GAN as another loss function to train the network beside autoregressive loss function. (default: gan)
 * `--begin`: for tang, input some incomplete poem, and the trained model will generate the whole poem. NOTE: should use under mode:gen.
 
-
+Also, you can use the `example.py` in `notebook` dir as tutorial.
