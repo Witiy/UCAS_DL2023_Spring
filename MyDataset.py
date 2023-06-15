@@ -35,10 +35,17 @@ kaggle需要以文件夹分割类别图片，例如
 '''
 
 mnist_root = './data/'
+
 kaggle_test_path = './data/KAGGLE/toy_test/'
 kaggle_pred_path = './data/KAGGLE/test/'
 kaggle_train_path = './data/KAGGLE/toy_train/'
+
 tang_train_path = './data/TANG/tang.npz'
+
+movie_dataset_path = './data/MOVIE/Dataset/'
+movie_train_path, movie_val_path = movie_dataset_path + 'train.txt', movie_dataset_path + 'validation.txt'
+movie_test_path = movie_dataset_path + 'test.txt'
+pred_word2vec_path = movie_dataset_path  + 'wiki_word2vec_50.bin'
 
 def dataset_split(full_ds, train_rate=0.8):
     train_size = int(len(full_ds) * train_rate)
@@ -105,6 +112,7 @@ class PoemDataSet(torch.utils.data.Dataset):
     def __getitem__(self, idx:int):
         txt = self.no_space_data[idx*self.seq_len : (idx+1)*self.seq_len]
         label = self.no_space_data[idx*self.seq_len + 1 : (idx+1)*self.seq_len + 1] # 将窗口向后移动一个字符就是标签
+
         txt = torch.from_numpy(np.array(txt)).long()
         label = torch.from_numpy(np.array(label)).long()
         return txt,label
@@ -148,4 +156,126 @@ def get_tang_raw_data(poem_path):
     word2ix = datas['word2ix'].item()
     return data, ix2word, word2ix
 
+
+
+
+# 简繁转换 并构建词汇表
+def build_word_dict(train_path):
+    words = []
+    max_len = 0
+    total_len = 0
+    with open(train_path,'r',encoding='UTF-8') as f:
+        lines = f.readlines()
+        for line in  lines:
+            line = convert(line, 'zh-cn') #转换成大陆简体
+            line_words = re.split(r'[\s]', line)[1:-1] # 按照空字符\t\n 空格来切分
+            max_len = max(max_len, len(line_words))
+            total_len += len(line_words)
+            for w in line_words:
+                words.append(w)
+    words = list(set(words))#最终去重
+    words = sorted(words) # 一定要排序不然每次读取后生成此表都不一致，主要是set后顺序不同
+    #用unknown来表示不在训练语料中的词汇
+    word2ix = {w:i+1 for i,w in enumerate(words)} # 第0是unknown的 所以i+1
+    ix2word = {i+1:w for i,w in enumerate(words)}
+    word2ix['<unk>'] = 0
+    ix2word[0] = '<unk>'
+    avg_len = total_len / len(lines)
+    return word2ix, ix2word, max_len,  avg_len
+
+
+import gensim # word2vec预训练加载
+import jieba #分词
+from zhconv import convert #简繁转换
+# 变长序列的处理
+from torch.nn.utils.rnn import pad_sequence
+import re
+
+def build_word2id(file):
+    """
+    :param file: word2id #保存地址
+    :return: None
+    """
+    word2id = {'_PAD_': 0}
+    path = []
+    print(path)
+    for _path in path:
+        with open(_path, encoding='utf-8') as f:
+            for line in f.readlines():
+                sp = line.strip().split()
+                for word in sp[1:]:
+                    if word not in word2id.keys():
+                        word2id[word] = len(word2id)
+    with open(file, 'w', encoding='utf-8') as f:
+        for w in word2id:
+            f.write(w+'\t')
+            f.write(str(word2id[w]))
+            f.write('\n')
+
+
+def mycollate_fn(data):
+    # 这里的data是getittem返回的（input，label）的二元组，总共有batch_size个
+    data.sort(key=lambda x: len(x[0]), reverse=True)  # 根据每个句子的长度进行排序，长的排前
+    data_length = [len(sq[0]) for sq in data] # 记录句子的长度，在mini-batch中方便压缩
+    input_data = []
+    label_data = []
+    for i in data:
+        input_data.append(i[0])
+        label_data.append(i[1])
+    input_data = pad_sequence(input_data, batch_first=True, padding_value=0)
+    label_data = torch.tensor(label_data)
+    return input_data, label_data, data_length
+
+
+class CommentDataSet(torch.utils.data.Dataset):
+    def __init__(self, data_path, word2ix, ix2word):
+        self.data_path = data_path
+        self.word2ix = word2ix
+        self.ix2word = ix2word
+        self.data, self.label = self.get_data_label()
+
+    def __getitem__(self, idx: int):
+        return self.data[idx], self.label[idx]
+
+    def __len__(self):
+        return len(self.data)
+
+    def get_data_label(self):
+        data = []
+        label = []
+        with open(self.data_path, 'r', encoding='UTF-8') as f:
+            lines = f.readlines()
+            for line in lines:
+                try:
+                    label.append(torch.tensor(int(line[0]), dtype=torch.int64))
+                except BaseException:  # 遇到首个字符不是标签的就跳过比如空行，并打印
+                   # print('not expected line:' + line)
+                    continue
+                line = convert(line, 'zh-cn')  # 转换成大陆简体
+                line_words = re.split(r'[\s]', line)[1:-1]  # 按照空字符\t\n 空格来切分
+                words_to_idx = []
+                for w in line_words:
+                    try:
+                        index = self.word2ix[w]
+                    except BaseException:
+                        index = 0  # 测试集，验证集中可能出现没有收录的词语，置为0
+                    words_to_idx.append(index)
+                data.append(torch.tensor(words_to_idx, dtype=torch.int64))
+        return data, label
+
+def get_movie_dataloader(batch_size=32):
+    word2ix, ix2word, max_len, avg_len = build_word_dict(movie_train_path)
+    train_data = CommentDataSet(movie_train_path, word2ix, ix2word)
+    train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True,
+                              num_workers=0, collate_fn=mycollate_fn, )
+
+    validation_data = CommentDataSet(movie_val_path, word2ix, ix2word)
+    validation_loader = DataLoader(validation_data, batch_size=batch_size, shuffle=True,
+                                   num_workers=0, collate_fn=mycollate_fn, )
+
+    test_data = CommentDataSet(movie_test_path, word2ix, ix2word)
+    test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=False,
+                             num_workers=0, collate_fn=mycollate_fn, )
+
+    return train_loader, validation_loader, test_loader
 

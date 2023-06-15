@@ -1,3 +1,5 @@
+import os
+
 import matplotlib.pyplot as plt
 import torch
 from tqdm import tqdm
@@ -7,15 +9,19 @@ import numpy as np
 import matplotlib.pyplot as plt
 class Estimator:
     def __init__(self, model: torch.nn.Module, input_size, device, metrics=None):
+
+
         self.early_dict = None
         self.optim = None
         self.val_dataloader = None
         self.train_dataloader = None
         self.loss = None
         self.model = model
+
         self.device = device
+        self.model.to(self.device)
         if metrics is None:
-            self.added_metrics = ['acc']
+            self.added_metrics = ['accuracy']
         else:
             self.added_metrics = metrics
         #summary(model, input_size, -1)
@@ -104,6 +110,7 @@ class Estimator:
 
 
     def optimize(self, i):
+
         self.model.train()
         loop = tqdm(enumerate(self.train_dataloader), total=len(self.train_dataloader))
         train_loss = 0.
@@ -112,11 +119,11 @@ class Estimator:
         for metrics in self.added_metrics:
             value[metrics] = 0.
 
-        for batch_idx, (data, target) in loop:
+        for batch_idx, item in loop:
                 loop.set_description('Epoch %i' % i)
                 self.optim.zero_grad()
 
-                loss, output, target = self.calcu_loss(data, target)
+                loss, output, target = self.calcu_loss(item)
                 loss.backward()
                 self.optim.step()
 
@@ -133,7 +140,7 @@ class Estimator:
 
         self.history['train_loss'].append(train_loss / len(self.train_dataloader)) #记录训练过程的loss
         for metrics in self.added_metrics:
-            value[metrics] /= len(self.train_dataloader.dataset) #对记录的metrics求平均
+            value[metrics] /= num #对记录的metrics求平均
             self.history['train_' + metrics].append(value[metrics])
 
 
@@ -156,6 +163,7 @@ class Estimator:
         if improve > 0:
             self.best_matrics = current_metrics
             self.best_model_para = self.model.state_dict()
+            torch.save(self.best_model_para, 'tmp_model.pth')
             self.patient = 0
             self.end_epoch = len(self.history['val_' + self.early_dict['metrics']])
         #若无提升，则记录无提升epoch数+1
@@ -167,7 +175,14 @@ class Estimator:
         else:
             self.stop = False
 
+    def preprocess_train(self):
+        pass
+
+    def postprocess_epoch(self):
+        pass
+
     def train(self, epoch=50):
+        self.preprocess_train()
         self.init_history()
         self.eval('train')
         if self.val_dataloader != None:
@@ -182,10 +197,11 @@ class Estimator:
                 self.check()
                 if self.stop:
                     break
+            self.postprocess_epoch()
         print('Finish Train')
 
-    def calcu_loss(self, data, target):
-
+    def calcu_loss(self, item):
+        data, target = item[0], item[1]
         data, target = data.to(self.device), target.to(self.device)
 
         output = self.model(data)
@@ -196,13 +212,18 @@ class Estimator:
     def calcu_metrics(self, metric, output, target):
         return getattr(self, metric)(output, target)
 
-    def acc(self, output, target):
-        #print(output.shape, target.shape)
-        pred = output.data.max(1, keepdim=True)[1]
-        #print(pred.shape)
-        acc = pred.eq(target.data.view_as(pred)).sum()
-        #print(acc)
-        return acc
+    ## topk的准确率计算
+    def accuracy(self, output, target, topk=1):
+
+        maxk = topk
+        # 获取前K的索引
+        _, pred = output.topk(maxk, 1, True, True)  # 使用topk来获得前k个的索引
+        pred = pred.t()  # 进行转置
+
+        correct = pred.eq(target.view(1, -1).expand_as(pred))  # 与正确标签序列形成的矩阵相比，生成True/False矩阵
+        return correct.float().sum()
+
+
 
     def eval(self, mode='val'):
         self.model.eval()
@@ -227,10 +248,10 @@ class Estimator:
             loop = tqdm(enumerate(dataloader), total=len(dataloader))
             num = 0
 
-            for batch_idx, (data, target) in loop:
+            for batch_idx, item in loop:
 
                 loop.set_description('Eval('+mode+')')
-                loss, output, target = self.calcu_loss(data, target)
+                loss, output, target = self.calcu_loss(item)
                 test_loss += loss.item()
                 num += target.shape[0]
                 postfix = {}
@@ -246,25 +267,16 @@ class Estimator:
         if mode != 'test':
             self.history[mode + '_loss'].append(test_loss)
         for metrics in self.added_metrics:
-            value[metrics] /= len(dataloader.dataset)
+            value[metrics] /= num
             if mode != 'test':
                 self.history[mode + '_' + metrics].append(value[metrics])
 
 
 
-    def pred(self, test_dataloader):
-        outputs = []
-        print('inference dataset size: {}'.format(len(test_dataloader.dataset)))
-        with torch.no_grad():
-            for data, target in tqdm(test_dataloader):
-                data, target = data.to(self.device), target.to(self.device)
-                output = self.model_get_output(data)
-                outputs.append(output)
-        return torch.cat(outputs, dim=0)
 
     def save(self, path):
         if self.early_stopping:
-            torch.save(self.best_model_para, path)
+            os.system('mv tmp_model.pth '+path)
         else:
             torch.save(self.model.state_dict(), path)
         np.save(path + '.history.npy', self.history)
