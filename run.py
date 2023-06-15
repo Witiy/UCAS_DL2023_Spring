@@ -229,7 +229,7 @@ def main():
     parser.add_argument('--early_stopping', action='store_true', default=True)
     parser.add_argument('--begin', type=str, default='床前明月光，')
     parser.add_argument('--patient', type=int, default=5)
-    parser.add_argument('--cuda', action='store_true', default=True)
+    parser.add_argument('--cuda', action='store_true', default=False)
 
     args = parser.parse_args()
     mode, path, cuda, lr, bs, es, tr = args.mode, args.path, args.cuda, args.lr, args.bs, args.es, args.tr
